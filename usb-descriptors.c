@@ -11,6 +11,8 @@
 
 #include <tusb.h>
 
+#include "serial.h"
+
 #define DESC_STR_MAX 20
 
 #define USBD_VID 0x2E8A /* Raspberry Pi */
@@ -110,10 +112,12 @@ static const uint8_t usbd_desc_cfg[USBD_DESC_LEN] = {
 
 };
 
-static const char *const usbd_desc_str[] = {
+char serial[17];
+
+static char *const usbd_desc_str[] = {
 	[USBD_STR_MANUF] = "Raspberry Pi",
 	[USBD_STR_PRODUCT] = "Pico",
-	[USBD_STR_SERIAL] = "000000000000",
+	[USBD_STR_SERIAL] = serial,
 	[USBD_STR_CDC] = "Board CDC",
 };
 

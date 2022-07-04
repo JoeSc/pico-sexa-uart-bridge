@@ -13,6 +13,8 @@
 #include <tusb.h>
 #include <uart_rx.pio.h>
 #include <uart_tx.pio.h>
+#include <hardware/flash.h>
+#include "serial.h"
 
 #if !defined(MIN)
 #define MIN(a, b) ((a > b) ? b : a)
@@ -313,6 +315,15 @@ void uart_write_bytes(uint8_t itf) {
 	}
 }
 
+static inline void init_usb_cdc_serial_num() {
+	uint8_t id[8];
+	flash_get_unique_id(id);
+	for (int i = 0; i < 8; ++i) {
+		sprintf(serial + 2 * i, "%X", id[i]);
+	}
+	serial[16] = '\0';
+}
+
 void init_uart_data(uint8_t itf) {
 	uart_id_t *ui = &UART_ID[itf];
 	uart_data_t *ud = &UART_DATA[itf];
@@ -373,6 +384,7 @@ int main(void)
 	txp_offset = pio_add_program(pio1, &uart_txp_program);
 
 
+	init_usb_cdc_serial_num();
 
 	for (itf = 0; itf < CFG_TUD_CDC; itf++)
 		init_uart_data(itf);
