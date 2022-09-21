@@ -1,11 +1,6 @@
 Raspberry Pi Pico USB-HW_and_PIO-UART Bridge
 =================================
 This expands Noltari's project to add 4 additional UARTs using the pico PIOs.
-It requires a "fix" in tinyusb - ~/pico/pico-sdk/lib/tinyusb/src/device/usbd.c (thanks hippy)
-
-#define CFG_TUD_EP_MAX          15
-
-The PIO uarts are currently all 8x1. They will support but not check odd/even/no parity bit
 
 Raspberry Pi Pico USB-UART Bridge
 =================================
