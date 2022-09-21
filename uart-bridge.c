@@ -40,12 +40,12 @@ typedef struct {
 	cdc_line_coding_t usb_lc;
 	cdc_line_coding_t uart_lc;
 	mutex_t lc_mtx;
-	uint8_t uart_buffer[BUFFER_SIZE];
-	uint32_t uart_pos;
+	uint8_t uart_rx_buffer[BUFFER_SIZE];
+	uint32_t uart_rx_pos;
 	mutex_t uart_mtx;
-	uint8_t usb_buffer[BUFFER_SIZE];
-	uint32_t usb_pos;
-	uint32_t usb_snd;
+	uint8_t usb_to_uart_buffer[BUFFER_SIZE];
+	uint32_t usb_to_uart_pos;
+	uint32_t usb_to_uart_snd;
 	mutex_t usb_mtx;
 } uart_data_t;
 
@@ -180,12 +180,12 @@ void usb_read_bytes(uint8_t itf) {
 
 		mutex_enter_blocking(&ud->usb_mtx);
 
-		len = MIN(len, BUFFER_SIZE - ud->usb_pos);
+		len = MIN(len, BUFFER_SIZE - ud->usb_to_uart_pos);
 		if (len) {
 			uint32_t count;
 
-			count = tud_cdc_n_read(itf, &ud->usb_buffer[ud->usb_pos], len);
-			ud->usb_pos += count;
+			count = tud_cdc_n_read(itf, &ud->usb_to_uart_buffer[ud->usb_to_uart_pos], len);
+			ud->usb_to_uart_pos += count;
 		}
 
 		mutex_exit(&ud->usb_mtx);
@@ -195,16 +195,16 @@ void usb_read_bytes(uint8_t itf) {
 void usb_write_bytes(uint8_t itf) {
 	uart_data_t *ud = &UART_DATA[itf];
 
-	if (ud->uart_pos) {
+	if (ud->uart_rx_pos) {
 		uint32_t count;
 
 		mutex_enter_blocking(&ud->uart_mtx);
 
-		count = tud_cdc_n_write(itf, ud->uart_buffer, ud->uart_pos);
-		if (count < ud->uart_pos)
-			memcpy(ud->uart_buffer, &ud->uart_buffer[count],
-			       ud->uart_pos - count);
-		ud->uart_pos -= count;
+		count = tud_cdc_n_write(itf, ud->uart_rx_buffer, ud->uart_rx_pos);
+		if (count < ud->uart_rx_pos)
+			memcpy(ud->uart_rx_buffer, &ud->uart_rx_buffer[count],
+			       ud->uart_rx_pos - count);
+		ud->uart_rx_pos -= count;
 
 		mutex_exit(&ud->uart_mtx);
 
@@ -257,9 +257,9 @@ void uart_read_bytes(uint8_t itf)
 			mutex_enter_blocking(&ud->uart_mtx);
 
 			while (uart_is_readable(ui->inst) &&
-					ud->uart_pos < BUFFER_SIZE) {
-				ud->uart_buffer[ud->uart_pos] = uart_getc(ui->inst);
-				ud->uart_pos++;
+					ud->uart_rx_pos < BUFFER_SIZE) {
+				ud->uart_rx_buffer[ud->uart_rx_pos] = uart_getc(ui->inst);
+				ud->uart_rx_pos++;
 			}
 
 			mutex_exit(&ud->uart_mtx);
@@ -269,9 +269,9 @@ void uart_read_bytes(uint8_t itf)
             uart_data_t *ud = &UART_DATA[itf];
             mutex_enter_blocking(&ud->uart_mtx);
             while (!pio_sm_is_rx_fifo_empty(pio0, ui->sm) &&
-                    ud->uart_pos < BUFFER_SIZE) {
-                ud->uart_buffer[ud->uart_pos] =  uart_rx_program_getc(pio0, ui->sm);
-                ud->uart_pos++;
+                    ud->uart_rx_pos < BUFFER_SIZE) {
+                ud->uart_rx_buffer[ud->uart_rx_pos] =  uart_rx_program_getc(pio0, ui->sm);
+                ud->uart_rx_pos++;
             }
 
             mutex_exit(&ud->uart_mtx);
@@ -282,30 +282,30 @@ void uart_read_bytes(uint8_t itf)
 void uart_write_bytes(uint8_t itf) {
 	uart_data_t *ud = &UART_DATA[itf];
 
-	if ((ud->usb_pos) && (ud->usb_snd < ud->usb_pos)) {
+	if ((ud->usb_to_uart_pos) && (ud->usb_to_uart_snd < ud->usb_to_uart_pos)) {
 	    const uart_id_t *ui = &UART_ID[itf];
 
 		mutex_enter_blocking(&ud->usb_mtx);
         if (ui->inst != 0){	
 
-            while (uart_is_writable(ui->inst)&&(ud->usb_snd < ud->usb_pos)) {
-                uart_putc(ui->inst, ud->usb_buffer[ud->usb_snd++]);
+            while (uart_is_writable(ui->inst)&&(ud->usb_to_uart_snd < ud->usb_to_uart_pos)) {
+                uart_putc(ui->inst, ud->usb_to_uart_buffer[ud->usb_to_uart_snd++]);
             }			
         } else {
 
             size_t bufspace=7-pio_sm_get_tx_fifo_level(pio1,ui->sm);	
-            size_t tosend=ud->usb_pos-ud->usb_snd;	
+            size_t tosend=ud->usb_to_uart_pos-ud->usb_to_uart_snd;	
             tosend = MIN(tosend,bufspace);
 
             for (size_t i = 0; i<tosend; ++i) {
-        		uart_tx_program_putc(pio1, ui->sm, ud->usb_buffer[ud->usb_snd+i],ud->usb_lc.parity);
+        		uart_tx_program_putc(pio1, ui->sm, ud->usb_to_uart_buffer[ud->usb_to_uart_snd+i],ud->usb_lc.parity);
             }
-            ud->usb_snd+=tosend;
+            ud->usb_to_uart_snd+=tosend;
         }
 		// only reset buffers if we've sent everything
-        if (ud->usb_snd == ud->usb_pos) {
-            ud->usb_pos = 0;
-            ud->usb_snd = 0;
+        if (ud->usb_to_uart_snd == ud->usb_to_uart_pos) {
+            ud->usb_to_uart_pos = 0;
+            ud->usb_to_uart_snd = 0;
         }
 		mutex_exit(&ud->usb_mtx);
 	}
@@ -334,9 +334,9 @@ void init_uart_data(uint8_t itf) {
 	ud->uart_lc.stop_bits = DEF_STOP_BITS;
 
 	/* Buffer */
-	ud->uart_pos = 0;
-	ud->usb_pos = 0;
-	ud->usb_snd = 0;
+	ud->uart_rx_pos = 0;
+	ud->usb_to_uart_pos = 0;
+	ud->usb_to_uart_snd = 0;
 
 	/* Mutex */
 	mutex_init(&ud->lc_mtx);
