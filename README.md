@@ -1,11 +1,10 @@
-Raspberry Pi Pico USB-HW_and_PIO-UART Bridge
-=================================
-This expands Noltari's project to add 4 additional UARTs using the pico PIOs.
-
 Raspberry Pi Pico USB-UART Bridge
 =================================
+This project converts the Raspberry Pi Pico(or any RP2040) into a USB to 6 UART board.
 
-This program bridges the Raspberry Pi Pico HW UARTs to two independent USB CDC serial devices in order to behave like any other USB-to-UART Bridge controllers.
+History
+----------
+This expands [Noltari's](https://github.com/Noltari/pico-uart-bridge) project to add 4 additional UARTs using the pico PIOs. And expands on [harrywalsh's](https://github.com/harrywalsh/pico-hw_and_pio-uart-gridge) project to provide better SEO and remove some data loss when using all 6 UARTs concurrently.
 
 Disclaimer
 ----------
@@ -14,6 +13,7 @@ This software is provided without warranty, according to the MIT License, and sh
 
 Raspberry Pi Pico Pinout
 ------------------------
+The pinout can easily be modified in uart-bridge.c but below is the default
 
 | Raspberry Pi Pico GPIO | Function |
 |:----------------------:|:--------:|
@@ -29,4 +29,3 @@ Raspberry Pi Pico Pinout
 | GPIO17 (Pin 22)        | UART4 RX |
 | GPIO20 (Pin 26)        | UART5 TX |
 | GPIO21 (Pin 27)        | UART5 RX |
-
