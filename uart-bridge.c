@@ -42,6 +42,8 @@ typedef struct {
 	mutex_t lc_mtx;
 	uint8_t uart_rx_buffer[BUFFER_SIZE];
 	uint32_t uart_rx_pos;
+	uint8_t uart_to_usb_buffer[BUFFER_SIZE];
+	uint32_t uart_to_usb_pos;
 	mutex_t uart_mtx;
 	uint8_t usb_to_uart_buffer[BUFFER_SIZE];
 	uint32_t usb_to_uart_pos;
@@ -195,16 +197,14 @@ void usb_read_bytes(uint8_t itf) {
 void usb_write_bytes(uint8_t itf) {
 	uart_data_t *ud = &UART_DATA[itf];
 
-	if (ud->uart_rx_pos) {
+	if (ud->uart_to_usb_pos && mutex_try_enter(&ud->uart_mtx, NULL)) {
 		uint32_t count;
 
-		mutex_enter_blocking(&ud->uart_mtx);
-
-		count = tud_cdc_n_write(itf, ud->uart_rx_buffer, ud->uart_rx_pos);
-		if (count < ud->uart_rx_pos)
-			memcpy(ud->uart_rx_buffer, &ud->uart_rx_buffer[count],
-			       ud->uart_rx_pos - count);
-		ud->uart_rx_pos -= count;
+		count = tud_cdc_n_write(itf, ud->uart_to_usb_buffer, ud->uart_to_usb_pos);
+		if (count < ud->uart_to_usb_pos)
+			memcpy(ud->uart_to_usb_buffer, &ud->uart_to_usb_buffer[count],
+			       ud->uart_to_usb_pos - count);
+		ud->uart_to_usb_pos -= count;
 
 		mutex_exit(&ud->uart_mtx);
 
@@ -249,34 +249,36 @@ void core1_entry(void)
 void uart_read_bytes(uint8_t itf) 
 {
 	const uart_id_t *ui = &UART_ID[itf];
+	uart_data_t *ud = &UART_DATA[itf];
 
     if (ui->inst != 0) {
 	    if (uart_is_readable(ui->inst)) {
-			uart_data_t *ud = &UART_DATA[itf];
-
-			mutex_enter_blocking(&ud->uart_mtx);
-
 			while (uart_is_readable(ui->inst) &&
 					ud->uart_rx_pos < BUFFER_SIZE) {
 				ud->uart_rx_buffer[ud->uart_rx_pos] = uart_getc(ui->inst);
 				ud->uart_rx_pos++;
 			}
-
-			mutex_exit(&ud->uart_mtx);
 	    }
+		
+
     } else {
         if (!pio_sm_is_rx_fifo_empty(pio0, ui->sm)) {
-            uart_data_t *ud = &UART_DATA[itf];
-            mutex_enter_blocking(&ud->uart_mtx);
             while (!pio_sm_is_rx_fifo_empty(pio0, ui->sm) &&
                     ud->uart_rx_pos < BUFFER_SIZE) {
                 ud->uart_rx_buffer[ud->uart_rx_pos] =  uart_rx_program_getc(pio0, ui->sm);
                 ud->uart_rx_pos++;
             }
-
-            mutex_exit(&ud->uart_mtx);
         }
     }      
+	// If we can get the uart mutex then copy the UART data to the uart USB sender, otherwise we'll get it next time around
+	if (mutex_try_enter(&ud->uart_mtx, NULL)) {
+		// Ensure we don't overflow the uart_to_usb_buffer
+		uint32_t len = MIN(ud->uart_rx_pos, BUFFER_SIZE - ud->uart_to_usb_pos);
+		memcpy(&ud->uart_to_usb_buffer[ud->uart_to_usb_pos], ud->uart_rx_buffer, len);
+		ud->uart_to_usb_pos += len;
+		ud->uart_rx_pos = 0;
+		mutex_exit(&ud->uart_mtx);
+	}
 }
 
 void uart_write_bytes(uint8_t itf) {
@@ -335,6 +337,7 @@ void init_uart_data(uint8_t itf) {
 
 	/* Buffer */
 	ud->uart_rx_pos = 0;
+	ud->uart_to_usb_pos = 0;
 	ud->usb_to_uart_pos = 0;
 	ud->usb_to_uart_snd = 0;
 
